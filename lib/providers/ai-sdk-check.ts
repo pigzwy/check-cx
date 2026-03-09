@@ -26,6 +26,7 @@ import { createGoogleGenerativeAI } from "@ai-sdk/google";
 
 import type { CheckResult, HealthStatus, ProviderConfig } from "../types";
 import { DEFAULT_ENDPOINTS } from "../types";
+import { getErrorMessage, getSanitizedErrorDetail } from "../utils";
 import { generateChallenge, validateResponse } from "./challenge";
 import { measureEndpointPing } from "./endpoint-ping";
 
@@ -454,7 +455,8 @@ function buildCheckResult(
   params: ResultBuilderParams,
   status: HealthStatus | "validation_failed" | "failed" | "error",
   latencyMs: number | null,
-  message: string
+  message: string,
+  logMessage?: string
 ): CheckResult {
   return {
     id: params.config.id,
@@ -467,31 +469,9 @@ function buildCheckResult(
     pingLatencyMs: params.pingLatencyMs,
     checkedAt: new Date().toISOString(),
     message,
+    ...(logMessage ? { logMessage } : {}),
+    groupName: params.config.groupName || null,
   };
-}
-
-/* ============================================================================
- * 调试日志
- * ============================================================================ */
-
-/**
- * 打印检查结果调试日志
- *
- * 格式：[provider] 分组 | 名称 | Q: 问题 | A: 回答 | 期望: 答案 | 验证: 状态
- */
-function logCheckResult(
-  config: ProviderConfig,
-  prompt: string,
-  response: string,
-  expectedAnswer: string,
-  isValid: boolean | null
-): void {
-  const validStatus = isValid === null ? "失败(空回复)" : isValid ? "通过" : "失败";
-  const groupName = config.groupName || "默认";
-  const normalizedPrompt = prompt.replace(/\r?\n/g, " ");
-  console.log(
-    `[${config.type}] ${groupName} | ${config.name} | Q: ${normalizedPrompt} | A: ${response || "(空)"} | 期望: ${expectedAnswer} | 验证: ${validStatus}`
-  );
 }
 
 /* ============================================================================
@@ -563,19 +543,22 @@ export async function checkWithAiSdk(config: ProviderConfig): Promise<CheckResul
 
     // 检查流处理过程中是否有错误
     if (streamError) {
-      logCheckResult(config, challenge.prompt, "", challenge.expectedAnswer, null);
-      return buildCheckResult(params, "error", latencyMs, getErrorMessage(streamError));
+      return buildCheckResult(
+        params,
+        "error",
+        latencyMs,
+        getErrorMessage(streamError),
+        getSanitizedErrorDetail(streamError)
+      );
     }
 
     // 空回复
     if (!collectedResponse.trim()) {
-      logCheckResult(config, challenge.prompt, "", challenge.expectedAnswer, null);
       return buildCheckResult(params, "failed", latencyMs, "回复为空");
     }
 
     // 验证答案
     const { valid, extractedNumbers } = validateResponse(collectedResponse, challenge.expectedAnswer);
-    logCheckResult(config, challenge.prompt, collectedResponse, challenge.expectedAnswer, valid);
 
     if (!valid) {
       const actualNumbers = extractedNumbers?.join(", ") || "(无数字)";
@@ -594,7 +577,13 @@ export async function checkWithAiSdk(config: ProviderConfig): Promise<CheckResul
     return buildCheckResult(params, status, latencyMs, message);
   } catch (error) {
     const params = await buildParams();
-    return buildCheckResult(params, "error", null, getErrorMessage(error as AIApiCallError));
+    return buildCheckResult(
+      params,
+      "error",
+      null,
+      getErrorMessage(error as AIApiCallError),
+      getSanitizedErrorDetail(error)
+    );
   } finally {
     clearTimeout(timeout);
   }
