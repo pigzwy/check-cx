@@ -28,6 +28,7 @@ export interface CheckConfigRow {
   enabled: boolean;
   is_maintenance: boolean;
   group_name?: string | null;
+  sort_order?: number | null;
   created_at?: string;
   updated_at?: string;
 }

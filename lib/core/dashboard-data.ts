@@ -110,7 +110,6 @@ async function loadDashboardDataInternal(options?: {
 }): Promise<DashboardLoadResult> {
   ensureOfficialStatusPoller();
   const allConfigs = await loadProviderConfigsFromDB();
-  const maintenanceConfigs = allConfigs.filter((cfg) => cfg.is_maintenance);
   const activeConfigs = allConfigs.filter((cfg) => !cfg.is_maintenance);
 
   const allowedIds = new Set(activeConfigs.map((item) => item.id));
@@ -141,7 +140,7 @@ async function loadDashboardDataInternal(options?: {
       refreshMode
     );
 
-    const providerTimelines = buildProviderTimelines(history, maintenanceConfigs);
+    const providerTimelines = buildProviderTimelines(history, allConfigs);
 
     let lastUpdated: string | null = null;
     let lastUpdatedMs = 0;

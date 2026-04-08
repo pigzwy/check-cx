@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { loadHistory } from "@/lib/database/history";
 import { loadProviderConfigsFromDB } from "@/lib/database/config-loader";
+import { ensureBackgroundPollerStarted } from "@/lib/core/poller";
 import { getPollingIntervalMs, getPollingIntervalLabel } from "@/lib/core/polling-config";
 import type { CheckResult, HealthStatus } from "@/lib/types";
 
@@ -135,6 +136,8 @@ function computeStatistics(items: CheckResult[]): ProviderStatistics {
 }
 
 export async function GET(request: NextRequest) {
+  ensureBackgroundPollerStarted();
+
   const searchParams = request.nextUrl.searchParams;
   const groupFilter = searchParams.get("group");
   const modelFilter = searchParams.get("model");

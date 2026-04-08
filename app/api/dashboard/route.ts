@@ -1,6 +1,7 @@
 import {NextResponse} from "next/server";
 
 import {loadDashboardDataWithEtag} from "@/lib/core/dashboard-data";
+import {ensureBackgroundPollerStarted} from "@/lib/core/poller";
 import {getPollingIntervalMs} from "@/lib/core/polling-config";
 import type {AvailabilityPeriod} from "@/lib/types";
 
@@ -13,6 +14,8 @@ const VALID_PERIODS: AvailabilityPeriod[] = ["7d", "15d", "30d"];
 const DATA_CHANGE_CYCLE_SECONDS = 5 * 60;
 
 export async function GET(request: Request) {
+  ensureBackgroundPollerStarted();
+
   const { searchParams } = new URL(request.url);
   const period = searchParams.get("trendPeriod");
   const forceRefreshParam = searchParams.get("forceRefresh");
@@ -23,7 +26,7 @@ export async function GET(request: Request) {
     : undefined;
 
   const { data, etag } = await loadDashboardDataWithEtag({
-    refreshMode: shouldForceRefresh ? "always" : "never",
+    refreshMode: shouldForceRefresh ? "always" : "always",
     trendPeriod,
   });
 

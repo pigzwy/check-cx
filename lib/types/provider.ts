@@ -18,6 +18,7 @@ export interface ProviderConfig {
   model: string;
   apiKey: string;
   is_maintenance: boolean;
+  sortOrder?: number | null;
   requestHeaders?: Record<string, string> | null;
   metadata?: Record<string, unknown> | null;
   groupName?: string | null;

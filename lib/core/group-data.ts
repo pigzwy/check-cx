@@ -110,7 +110,6 @@ export async function loadGroupDashboardData(
     return null;
   }
 
-  const maintenanceConfigs = groupConfigs.filter((cfg) => cfg.is_maintenance);
   const activeConfigs = groupConfigs.filter((cfg) => !cfg.is_maintenance);
 
   const allowedIds = new Set(activeConfigs.map((item) => item.id));
@@ -142,7 +141,7 @@ export async function loadGroupDashboardData(
       refreshMode
     );
 
-    const providerTimelines = buildProviderTimelines(history, maintenanceConfigs);
+    const providerTimelines = buildProviderTimelines(history, groupConfigs);
 
     let lastUpdated: string | null = null;
     let lastUpdatedMs = 0;

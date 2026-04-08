@@ -33,6 +33,7 @@ export interface ProviderTimeline {
   id: string;
   items: TimelineItem[];
   latest: TimelineItem;
+  sortOrder?: number | null;
 }
 
 /**

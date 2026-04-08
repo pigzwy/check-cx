@@ -115,30 +115,44 @@ export async function loadSnapshotForScope(
   return history;
 }
 
+function getTimelineSortValue(sortOrder?: number | null): number {
+  return typeof sortOrder === "number" ? sortOrder : Number.MAX_SAFE_INTEGER;
+}
+
+function compareProviderTimelines(a: ProviderTimeline, b: ProviderTimeline): number {
+  const sortDiff = getTimelineSortValue(a.sortOrder) - getTimelineSortValue(b.sortOrder);
+  if (sortDiff !== 0) {
+    return sortDiff;
+  }
+  return a.latest.name.localeCompare(b.latest.name);
+}
+
 export function buildProviderTimelines(
   history: HistorySnapshot,
-  maintenanceConfigs: ProviderConfig[]
+  configs: ProviderConfig[]
 ): ProviderTimeline[] {
+  const configMap = new Map(configs.map((config) => [config.id, config]));
   const mapped = Object.entries(history)
     .map<ProviderTimeline | null>(([id, items]) => {
       if (items.length === 0) {
         return null;
       }
+      const config = configMap.get(id);
       // historySnapshotStore 已按 checkedAt 倒序返回
       const latest = attachOfficialStatus({ ...items[0] });
       return {
         id,
         items,
         latest,
+        sortOrder: config?.sortOrder ?? null,
       };
     })
     .filter((timeline): timeline is ProviderTimeline => Boolean(timeline));
 
+  const maintenanceConfigs = configs.filter((config) => config.is_maintenance);
   const maintenanceTimelines = maintenanceConfigs.map(createMaintenanceTimeline);
 
-  return [...mapped, ...maintenanceTimelines].sort((a, b) =>
-    a.latest.name.localeCompare(b.latest.name)
-  );
+  return [...mapped, ...maintenanceTimelines].sort(compareProviderTimelines);
 }
 
 function attachOfficialStatus(result: CheckResult): CheckResult {
@@ -168,5 +182,6 @@ function createMaintenanceTimeline(config: ProviderConfig): ProviderTimeline {
     id: config.id,
     items: [],
     latest: attachOfficialStatus(base),
+    sortOrder: config.sortOrder ?? null,
   };
 }

@@ -56,6 +56,7 @@ CREATE TABLE dev.check_configs (
     enabled boolean DEFAULT true,
     is_maintenance boolean DEFAULT false,
     group_name text,
+    sort_order integer,
     created_at timestamp with time zone DEFAULT now(),
     updated_at timestamp with time zone DEFAULT now(),
     CONSTRAINT check_configs_pkey PRIMARY KEY (id),
@@ -141,6 +142,9 @@ CREATE INDEX idx_dev_check_configs_enabled
 
 CREATE INDEX idx_dev_check_configs_model_id
     ON dev.check_configs USING btree (model_id);
+
+CREATE INDEX idx_dev_check_configs_sort_order
+    ON dev.check_configs USING btree (sort_order, name);
 
 CREATE INDEX idx_dev_check_models_template_id
     ON dev.check_models USING btree (template_id);
@@ -302,6 +306,7 @@ COMMENT ON COLUMN dev.check_configs.api_key IS 'API 密钥 - 用于身份验证�
 COMMENT ON COLUMN dev.check_configs.enabled IS '是否启用 - true: 启用检测, false: 禁用检测';
 COMMENT ON COLUMN dev.check_configs.is_maintenance IS '维护模式标记 - true 时停止健康检查';
 COMMENT ON COLUMN dev.check_configs.group_name IS '配置分组名称，用于 Dashboard 卡片分组展示，NULL 表示未分组';
+COMMENT ON COLUMN dev.check_configs.sort_order IS '自定义排序值，数值越小越靠前';
 COMMENT ON COLUMN dev.check_configs.created_at IS '创建时间 - 配置首次创建的时间戳';
 COMMENT ON COLUMN dev.check_configs.updated_at IS '更新时间 - 配置最后修改的时间戳,由触发器自动维护';
 
@@ -388,7 +393,7 @@ AS $$
   JOIN dev.check_configs c ON c.id = r.config_id
   JOIN dev.check_models m ON m.id = c.model_id
   WHERE r.rn <= limit_per_config
-  ORDER BY c.name ASC, r.checked_at DESC;
+  ORDER BY c.sort_order ASC NULLS LAST, c.name ASC, r.checked_at DESC;
 $$;
 
 -- RPC: 裁剪历史记录

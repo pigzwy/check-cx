@@ -26,7 +26,7 @@ type ModelProjection = Pick<CheckModelRow, "id" | "type" | "model" | "template_i
 };
 type ConfigRowWithModel = Pick<
   CheckConfigRow,
-  "id" | "name" | "type" | "model_id" | "endpoint" | "api_key" | "is_maintenance" | "group_name"
+  "id" | "name" | "type" | "model_id" | "endpoint" | "api_key" | "is_maintenance" | "group_name" | "sort_order"
 > & {
   check_models?: ModelProjection | ModelProjection[] | null;
 };
@@ -102,10 +102,11 @@ export async function loadProviderConfigsFromDB(options?: {
     const { data, error } = await supabase
       .from("check_configs")
       .select(
-        "id, name, type, model_id, endpoint, api_key, is_maintenance, group_name, check_models(id, type, model, template_id, check_request_templates(type, request_header, metadata))"
+        "id, name, type, model_id, endpoint, api_key, is_maintenance, group_name, sort_order, check_models(id, type, model, template_id, check_request_templates(type, request_header, metadata))"
       )
       .eq("enabled", true)
-      .order("id");
+      .order("sort_order", { ascending: true, nullsFirst: false })
+      .order("name", { ascending: true });
 
     if (error) {
       logError("从数据库加载配置失败", error);
@@ -134,6 +135,7 @@ export async function loadProviderConfigsFromDB(options?: {
           model: model?.model ?? "",
           apiKey: row.api_key,
           is_maintenance: row.is_maintenance,
+          sortOrder: row.sort_order ?? null,
           requestHeaders: mergedRequestHeaders,
           metadata: mergedMetadata,
           groupName: row.group_name || null,

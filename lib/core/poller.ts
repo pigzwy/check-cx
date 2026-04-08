@@ -7,7 +7,12 @@ import {historySnapshotStore} from "../database/history";
 import {loadProviderConfigsFromDB} from "../database/config-loader";
 import {runProviderChecks} from "../providers";
 import {getPollingIntervalMs} from "./polling-config";
-import {getLastPingStartedAt, getPollerTimer, setLastPingStartedAt, setPollerTimer,} from "./global-state";
+import {
+  getLastPingStartedAt,
+  getPollerTimer,
+  setLastPingStartedAt,
+  setPollerTimer,
+} from "./global-state";
 import {startOfficialStatusPoller} from "./official-status-poller";
 import {ensurePollerLeadership, isPollerLeader} from "./poller-leadership";
 import type {CheckResult, HealthStatus} from "../types";
@@ -130,8 +135,11 @@ async function tick() {
   }
 }
 
-// 自动初始化轮询器
-if (!getPollerTimer()) {
+export function ensureBackgroundPollerStarted(): void {
+  if (getPollerTimer()) {
+    return;
+  }
+
   const firstCheckAt = new Date(Date.now() + POLL_INTERVAL_MS).toISOString();
   console.log(
     `[check-cx] 初始化后台轮询器，interval=${POLL_INTERVAL_MS}ms，首次检测预计 ${firstCheckAt}`
@@ -147,3 +155,6 @@ if (!getPollerTimer()) {
   // 启动官方状态轮询器
   startOfficialStatusPoller();
 }
+
+// 兼容旧行为：模块被运行时导入时自动启动
+ensureBackgroundPollerStarted();

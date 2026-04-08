@@ -1,5 +1,6 @@
 import {NextResponse} from "next/server";
 import {loadGroupDashboardData} from "@/lib/core/group-data";
+import {ensureBackgroundPollerStarted} from "@/lib/core/poller";
 import {getPollingIntervalMs} from "@/lib/core/polling-config";
 import type {AvailabilityPeriod} from "@/lib/types";
 
@@ -27,6 +28,8 @@ function generateETag(data: string): string {
 }
 
 export async function GET(_request: Request, context: RouteContext) {
+  ensureBackgroundPollerStarted();
+
   const { groupName } = await context.params;
   const decodedGroupName = decodeURIComponent(groupName);
 
@@ -42,7 +45,7 @@ export async function GET(_request: Request, context: RouteContext) {
     : undefined;
 
   const data = await loadGroupDashboardData(decodedGroupName, {
-    refreshMode: shouldForceRefresh ? "always" : "never",
+    refreshMode: shouldForceRefresh ? "always" : "always",
     trendPeriod,
   });
 

@@ -64,6 +64,7 @@ CREATE TABLE public.check_configs (
     enabled         boolean DEFAULT true,
     is_maintenance  boolean DEFAULT false,
     group_name      text,
+    sort_order      integer,
     created_at      timestamptz DEFAULT now(),
     updated_at      timestamptz DEFAULT now()
 );
@@ -78,6 +79,7 @@ COMMENT ON COLUMN public.check_configs.api_key IS 'API 密钥';
 COMMENT ON COLUMN public.check_configs.enabled IS '是否启用检测';
 COMMENT ON COLUMN public.check_configs.is_maintenance IS '维护模式，true 时停止检查';
 COMMENT ON COLUMN public.check_configs.group_name IS '分组名称，用于 Dashboard 分组展示';
+COMMENT ON COLUMN public.check_configs.sort_order IS '自定义排序值，数值越小越靠前';
 COMMENT ON COLUMN public.check_configs.created_at IS '创建时间';
 COMMENT ON COLUMN public.check_configs.updated_at IS '更新时间';
 
@@ -159,6 +161,7 @@ CREATE INDEX idx_check_history_config_id ON public.check_history (config_id);
 CREATE INDEX idx_check_history_checked_at ON public.check_history (checked_at DESC);
 CREATE INDEX idx_history_config_checked ON public.check_history (config_id, checked_at DESC);
 CREATE INDEX idx_check_configs_model_id ON public.check_configs (model_id);
+CREATE INDEX idx_check_configs_sort_order ON public.check_configs (sort_order, name);
 CREATE INDEX idx_check_models_template_id ON public.check_models (template_id);
 
 -- -----------------------------------------------------------------------------
@@ -389,7 +392,7 @@ AS $$
     JOIN check_configs c ON c.id = r.config_id
     JOIN check_models m ON m.id = c.model_id
     WHERE r.rn <= limit_per_config
-    ORDER BY c.name ASC, r.checked_at DESC;
+    ORDER BY c.sort_order ASC NULLS LAST, c.name ASC, r.checked_at DESC;
 $$;
 
 -- 清理过期的历史记录

@@ -92,6 +92,21 @@ const SORT_OPTIONS: Array<{ value: SortMode; label: string }> = [
 // 未分组标识常量
 const UNGROUPED_KEY = "__ungrouped__";
 
+const getTimelineSortValue = (
+  timeline: DashboardData["providerTimelines"][number]
+) => (typeof timeline.sortOrder === "number" ? timeline.sortOrder : Number.MAX_SAFE_INTEGER);
+
+const compareTimelineOrder = (
+  a: DashboardData["providerTimelines"][number],
+  b: DashboardData["providerTimelines"][number]
+) => {
+  const sortDiff = getTimelineSortValue(a) - getTimelineSortValue(b);
+  if (sortDiff !== 0) {
+    return sortDiff;
+  }
+  return a.latest.name.localeCompare(b.latest.name);
+};
+
 const buildGroupedTimelines = (
   timelines: DashboardData["providerTimelines"],
   groupInfos: GroupInfoSummary[]
@@ -114,7 +129,15 @@ const buildGroupedTimelines = (
   const groups: GroupedProviderTimelines[] = [];
   const namedGroups = [...groupMap.entries()]
     .filter(([key]) => key !== UNGROUPED_KEY)
-    .sort(([a], [b]) => a.localeCompare(b));
+    .sort(([groupNameA, timelinesA], [groupNameB, timelinesB]) => {
+      const groupSortDiff =
+        Math.min(...timelinesA.map(getTimelineSortValue)) -
+        Math.min(...timelinesB.map(getTimelineSortValue));
+      if (groupSortDiff !== 0) {
+        return groupSortDiff;
+      }
+      return groupNameA.localeCompare(groupNameB);
+    });
 
   for (const [groupName, groupTimelines] of namedGroups) {
     const info = groupInfoMap.get(groupName);
@@ -123,9 +146,7 @@ const buildGroupedTimelines = (
       displayName: groupName,
       websiteUrl: info?.websiteUrl,
       tags: info?.tags ?? "",
-      timelines: [...groupTimelines].sort((a, b) =>
-        a.latest.name.localeCompare(b.latest.name)
-      ),
+      timelines: [...groupTimelines].sort(compareTimelineOrder),
     });
   }
 
@@ -135,9 +156,7 @@ const buildGroupedTimelines = (
       groupName: UNGROUPED_KEY,
       displayName: UNGROUPED_DISPLAY_NAME,
       tags: "",
-      timelines: [...ungrouped].sort((a, b) =>
-        a.latest.name.localeCompare(b.latest.name)
-      ),
+      timelines: [...ungrouped].sort(compareTimelineOrder),
     });
   }
 
@@ -769,7 +788,7 @@ export function DashboardView({ initialData }: DashboardViewProps) {
               <Activity className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
             </div>
             <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground sm:text-sm">
-              System Status
+              PigCoder
             </span>
             <div className="h-3 w-[1px] bg-border/60 sm:h-4" />
             <Link
@@ -785,15 +804,15 @@ export function DashboardView({ initialData }: DashboardViewProps) {
           </div>
           
           <h1 className="max-w-2xl text-3xl font-extrabold leading-tight tracking-tight sm:text-5xl md:text-6xl">
-            AI SERVICES <br />
-            <span className="text-muted-foreground">INTELLIGENCE MONITOR</span>
+            PigCoder <br />
+            <span className="text-muted-foreground">模型监控</span>
           </h1>
           
           <div className="flex max-w-lg flex-col gap-2 text-sm text-muted-foreground sm:text-base">
              <p className="leading-relaxed">
-               实时追踪各大 AI 模型对话接口的可用性、延迟与官方服务状态。
+               PigCoder 模型监控，实时追踪各模型接口的可用性、延迟与状态变化。
                <br />
-               Advanced performance metrics for next-gen intelligence.
+               实时掌握核心模型通道的运行情况。
              </p>
           </div>
         </div>

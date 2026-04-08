@@ -1,7 +1,6 @@
 import type {Metadata} from "next";
 import {Geist, Geist_Mono} from "next/font/google";
 import "./globals.css";
-import "@/lib/core/poller";
 import NextTopLoader from "nextjs-toploader";
 import {ThemeProvider} from "@/components/theme-provider";
 import {NotificationBanner} from "@/components/notification-banner";
@@ -17,8 +16,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "LINUX DO - 模型中转状态检测",
-  description: "实时检测 OpenAI / Gemini / Anthropic 对话接口的可用性与延迟",
+  title: "PigCoder 模型监控",
+  description: "PigCoder 模型监控，实时查看各模型接口可用性、延迟与状态变化",
   icons: {
     icon: "/favicon.png",
   },
