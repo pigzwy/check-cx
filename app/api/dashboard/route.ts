@@ -26,7 +26,7 @@ export async function GET(request: Request) {
     : undefined;
 
   const { data, etag } = await loadDashboardDataWithEtag({
-    refreshMode: shouldForceRefresh ? "always" : "always",
+    refreshMode: shouldForceRefresh ? "always" : "missing",
     trendPeriod,
   });
 

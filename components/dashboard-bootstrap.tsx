@@ -9,8 +9,12 @@ import type {AvailabilityPeriod, DashboardData} from "@/lib/types";
 
 const DEFAULT_PERIOD: AvailabilityPeriod = "7d";
 
-export function DashboardBootstrap() {
-  const [data, setData] = useState<DashboardData | null>(null);
+interface DashboardBootstrapProps {
+  initialData?: DashboardData | null;
+}
+
+export function DashboardBootstrap({ initialData = null }: DashboardBootstrapProps) {
+  const [data, setData] = useState<DashboardData | null>(initialData);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const loadData = useCallback(async (forceFresh?: boolean) => {
@@ -32,6 +36,9 @@ export function DashboardBootstrap() {
   }, []);
 
   useEffect(() => {
+    if (initialData) {
+      return;
+    }
     let isActive = true;
     const run = async () => {
       try {
@@ -61,7 +68,7 @@ export function DashboardBootstrap() {
     return () => {
       isActive = false;
     };
-  }, []);
+  }, [initialData]);
 
   if (!data) {
     return (

@@ -45,7 +45,7 @@ export async function GET(_request: Request, context: RouteContext) {
     : undefined;
 
   const data = await loadGroupDashboardData(decodedGroupName, {
-    refreshMode: shouldForceRefresh ? "always" : "always",
+    refreshMode: shouldForceRefresh ? "always" : "missing",
     trendPeriod,
   });
 

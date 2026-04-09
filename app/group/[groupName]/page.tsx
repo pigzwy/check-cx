@@ -3,7 +3,7 @@ import Link from "next/link";
 import {ChevronLeft} from "lucide-react";
 
 import {GroupDashboardBootstrap} from "@/components/group-dashboard-bootstrap";
-import {getAvailableGroups} from "@/lib/core/group-data";
+import {loadGroupDashboardData} from "@/lib/core/group-data";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -27,8 +27,12 @@ export default async function GroupPage({ params }: GroupPageProps) {
   const { groupName } = await params;
   const decodedGroupName = decodeURIComponent(groupName);
 
-  const availableGroups = await getAvailableGroups();
-  if (!availableGroups.includes(decodedGroupName)) {
+  const initialData = await loadGroupDashboardData(decodedGroupName, {
+    refreshMode: "missing",
+    trendPeriod: "7d",
+  });
+
+  if (!initialData) {
     notFound();
   }
 
@@ -44,7 +48,10 @@ export default async function GroupPage({ params }: GroupPageProps) {
           返回首页
         </Link>
 
-        <GroupDashboardBootstrap groupName={decodedGroupName} />
+        <GroupDashboardBootstrap
+          groupName={decodedGroupName}
+          initialData={initialData}
+        />
       </main>
     </div>
   );

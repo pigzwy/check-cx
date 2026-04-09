@@ -12,10 +12,14 @@ const DEFAULT_PERIOD: AvailabilityPeriod = "7d";
 
 interface GroupDashboardBootstrapProps {
   groupName: string;
+  initialData?: GroupDashboardData | null;
 }
 
-export function GroupDashboardBootstrap({ groupName }: GroupDashboardBootstrapProps) {
-  const [data, setData] = useState<GroupDashboardData | null>(null);
+export function GroupDashboardBootstrap({
+  groupName,
+  initialData = null,
+}: GroupDashboardBootstrapProps) {
+  const [data, setData] = useState<GroupDashboardData | null>(initialData);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const loadData = useCallback(
@@ -41,6 +45,9 @@ export function GroupDashboardBootstrap({ groupName }: GroupDashboardBootstrapPr
   );
 
   useEffect(() => {
+    if (initialData) {
+      return;
+    }
     let isActive = true;
     const run = async () => {
       try {
@@ -71,7 +78,7 @@ export function GroupDashboardBootstrap({ groupName }: GroupDashboardBootstrapPr
     return () => {
       isActive = false;
     };
-  }, [groupName]);
+  }, [groupName, initialData]);
 
   if (!data) {
     return (
