@@ -10,9 +10,11 @@ import type {AvailabilityStats} from "../types/database";
 import type {AvailabilityStat, AvailabilityStatsMap} from "../types";
 import {logError} from "../utils";
 
+const ALL_CONFIGS_CACHE_KEY = "__all__";
+
 interface AvailabilityCache {
   data: AvailabilityStatsMap;
-  lastFetchedAt: number;
+  fetchedAt: number;
 }
 
 interface AvailabilityCacheMetrics {
@@ -20,10 +22,7 @@ interface AvailabilityCacheMetrics {
   misses: number;
 }
 
-const cache: AvailabilityCache = {
-  data: {},
-  lastFetchedAt: 0,
-};
+const cache = new Map<string, AvailabilityCache>();
 
 const metrics: AvailabilityCacheMetrics = {
   hits: 0,
@@ -43,27 +42,17 @@ function normalizeIds(ids?: Iterable<string> | null): string[] | null {
   if (!ids) {
     return null;
   }
-  const normalized = Array.from(ids).filter(Boolean);
+  const normalized = Array.from(new Set(Array.from(ids).filter(Boolean))).sort(
+    (left, right) => left.localeCompare(right)
+  );
   return normalized.length > 0 ? normalized : [];
 }
 
-function filterStats(
-  data: AvailabilityStatsMap,
-  ids: string[] | null
-): AvailabilityStatsMap {
+function getCacheKey(ids: string[] | null): string {
   if (!ids) {
-    return data;
+    return ALL_CONFIGS_CACHE_KEY;
   }
-  if (ids.length === 0) {
-    return {};
-  }
-  const result: AvailabilityStatsMap = {};
-  for (const id of ids) {
-    if (data[id]) {
-      result[id] = data[id];
-    }
-  }
-  return result;
+  return ids.join("|");
 }
 
 function mapRows(rows: AvailabilityStats[] | null): AvailabilityStatsMap {
@@ -100,18 +89,26 @@ export async function getAvailabilityStats(
 
   const ttl = getPollingIntervalMs();
   const now = Date.now();
-  if (now - cache.lastFetchedAt < ttl && Object.keys(cache.data).length > 0) {
+  const cacheKey = getCacheKey(normalizedIds);
+  const cached = cache.get(cacheKey);
+  if (cached && now - cached.fetchedAt < ttl) {
     metrics.hits += 1;
-    return filterStats(cache.data, normalizedIds);
+    return cached.data;
   }
   metrics.misses += 1;
 
   const supabase = createAdminClient();
-  const { data, error } = await supabase
+  let query = supabase
     .from("availability_stats")
     .select("config_id, period, total_checks, operational_count, availability_pct")
     .order("config_id", { ascending: true })
     .order("period", { ascending: true });
+
+  if (normalizedIds) {
+    query = query.in("config_id", normalizedIds);
+  }
+
+  const { data, error } = await query;
 
   if (error) {
     logError("读取可用性统计失败", error);
@@ -119,8 +116,10 @@ export async function getAvailabilityStats(
   }
 
   const mapped = mapRows(data as AvailabilityStats[] | null);
-  cache.data = mapped;
-  cache.lastFetchedAt = now;
+  cache.set(cacheKey, {
+    data: mapped,
+    fetchedAt: now,
+  });
 
-  return filterStats(mapped, normalizedIds);
+  return mapped;
 }

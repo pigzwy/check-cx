@@ -7,6 +7,7 @@ import type {PostgrestError} from "@supabase/supabase-js";
 import {createAdminClient} from "../supabase/admin";
 import type {CheckResult, HistorySnapshot} from "../types";
 import {logError} from "../utils";
+import {getPollingIntervalMs} from "../core/polling-config";
 
 /**
  * 每个 Provider 最多保留的历史记录数
@@ -27,6 +28,7 @@ export const HISTORY_RETENTION_DAYS = (() => {
 
 const RPC_RECENT_HISTORY = "get_recent_check_history";
 const RPC_PRUNE_HISTORY = "prune_check_history";
+const MIN_PRUNE_INTERVAL_MS = 60 * 60 * 1000;
 
 type AdminClient = ReturnType<typeof createAdminClient>;
 
@@ -62,6 +64,8 @@ interface JoinedConfigRow {
  * SnapshotStore 负责与数据库交互，提供统一的读/写/清理接口
  */
 class SnapshotStore {
+  private lastPrunedAt = 0;
+
   async fetch(options?: HistoryQueryOptions): Promise<HistorySnapshot> {
     const normalizedIds = normalizeAllowedIds(options?.allowedIds);
     if (Array.isArray(normalizedIds) && normalizedIds.length === 0) {
@@ -110,7 +114,9 @@ class SnapshotStore {
       return;
     }
 
-    await this.pruneInternal(supabase);
+    if (this.shouldPrune()) {
+      await this.pruneInternal(supabase);
+    }
   }
 
   async prune(retentionDays: number = HISTORY_RETENTION_DAYS): Promise<void> {
@@ -130,8 +136,17 @@ class SnapshotStore {
       logError("清理历史记录失败", error);
       if (isMissingFunctionError(error)) {
         await fallbackPruneHistory(supabase, retentionDays);
+        this.lastPrunedAt = Date.now();
       }
+      return;
     }
+
+    this.lastPrunedAt = Date.now();
+  }
+
+  private shouldPrune(): boolean {
+    const pruneIntervalMs = Math.max(getPollingIntervalMs(), MIN_PRUNE_INTERVAL_MS);
+    return Date.now() - this.lastPrunedAt >= pruneIntervalMs;
   }
 }
 
