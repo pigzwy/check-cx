@@ -155,6 +155,3 @@ export function ensureBackgroundPollerStarted(): void {
   // 启动官方状态轮询器
   startOfficialStatusPoller();
 }
-
-// 兼容旧行为：模块被运行时导入时自动启动
-ensureBackgroundPollerStarted();

@@ -8,7 +8,7 @@ import {createAdminClient} from "../supabase/admin";
 import {getPollingIntervalMs} from "../core/polling-config";
 import type {AvailabilityStats} from "../types/database";
 import type {AvailabilityStat, AvailabilityStatsMap} from "../types";
-import {logError} from "../utils";
+import {logError, TtlCache} from "../utils";
 
 const ALL_CONFIGS_CACHE_KEY = "__all__";
 
@@ -22,7 +22,9 @@ interface AvailabilityCacheMetrics {
   misses: number;
 }
 
-const cache = new Map<string, AvailabilityCache>();
+const cache = new TtlCache<string, AvailabilityCache>({
+  maxEntries: 100,
+});
 
 const metrics: AvailabilityCacheMetrics = {
   hits: 0,
@@ -90,8 +92,8 @@ export async function getAvailabilityStats(
   const ttl = getPollingIntervalMs();
   const now = Date.now();
   const cacheKey = getCacheKey(normalizedIds);
-  const cached = cache.get(cacheKey);
-  if (cached && now - cached.fetchedAt < ttl) {
+  const cached = cache.get(cacheKey, now);
+  if (cached) {
     metrics.hits += 1;
     return cached.data;
   }
@@ -116,10 +118,15 @@ export async function getAvailabilityStats(
   }
 
   const mapped = mapRows(data as AvailabilityStats[] | null);
-  cache.set(cacheKey, {
-    data: mapped,
-    fetchedAt: now,
-  });
+  cache.set(
+    cacheKey,
+    {
+      data: mapped,
+      fetchedAt: now,
+    },
+    ttl,
+    now
+  );
 
   return mapped;
 }

@@ -2,22 +2,26 @@
  * Dashboard 数据聚合模块
  *
  * 职责：
- * - 从 Supabase 读取最近的检查历史（按 Provider 聚合）
- * - 在必要时触发一次新的 Provider 检测并写入历史
- * - 结合轮询配置与官方状态，生成 DashboardView 所需的完整数据结构
+ * - 复用统一监控数据装配逻辑
+ * - 维护首页 Dashboard 所需的缓存与 ETag
  */
-import {loadProviderConfigsFromDB} from "../database/config-loader";
-import {loadGroupInfos} from "../database/group-info";
-import {getAvailabilityStats} from "../database/availability";
-import {getPollingIntervalLabel, getPollingIntervalMs} from "./polling-config";
-import {ensureOfficialStatusPoller} from "./official-status-poller";
-import {buildProviderTimelines, loadSnapshotForScope} from "./health-snapshot-service";
-import type {AvailabilityPeriod, DashboardData, GroupInfoSummary, RefreshMode,} from "../types";
+import {
+  createMonitorScopeContext,
+  getMonitorCacheTtlMs,
+  loadDashboardGroupInfoSummaries,
+  loadScopedMonitorData,
+} from "./monitor-data";
+import type {
+  AvailabilityPeriod,
+  DashboardData,
+  GroupInfoSummary,
+  RefreshMode,
+} from "../types";
+import {TtlCache} from "../utils";
 
 interface DashboardCacheEntry {
   data?: DashboardData;
   etag?: string;
-  expiresAt: number;
   inflight?: Promise<DashboardLoadResult>;
 }
 
@@ -33,18 +37,9 @@ const dashboardCacheMetrics: DashboardCacheMetrics = {
   inflightHits: 0,
 };
 
-export function getDashboardCacheMetrics(): DashboardCacheMetrics {
-  return { ...dashboardCacheMetrics };
-}
-
-export function resetDashboardCacheMetrics(): void {
-  dashboardCacheMetrics.hits = 0;
-  dashboardCacheMetrics.misses = 0;
-  dashboardCacheMetrics.inflightHits = 0;
-}
-
-const DEFAULT_DASHBOARD_CACHE_TTL_MS = 5 * 60 * 1000;
-const dashboardCache = new Map<string, DashboardCacheEntry>();
+const dashboardCache = new TtlCache<string, DashboardCacheEntry>({
+  maxEntries: 50,
+});
 
 function getDashboardCacheKey(
   pollIntervalMs: number,
@@ -52,13 +47,6 @@ function getDashboardCacheKey(
   trendPeriod: AvailabilityPeriod
 ): string {
   return `dashboard:${pollIntervalMs}:${trendPeriod}:${providerKey}`;
-}
-
-function getDashboardCacheTtlMs(pollIntervalMs: number): number {
-  if (Number.isFinite(pollIntervalMs) && pollIntervalMs > 0) {
-    return pollIntervalMs;
-  }
-  return DEFAULT_DASHBOARD_CACHE_TTL_MS;
 }
 
 function generateETag(data: string): string {
@@ -70,10 +58,9 @@ function generateETag(data: string): string {
 }
 
 function buildDashboardEtag(data: DashboardData): string {
-  const { generatedAt, ...etagPayload } = data;
+  const {generatedAt, ...etagPayload} = data;
   void generatedAt;
-  const jsonBody = JSON.stringify(etagPayload);
-  return generateETag(jsonBody);
+  return generateETag(JSON.stringify(etagPayload));
 }
 
 export interface DashboardLoadResult {
@@ -81,14 +68,16 @@ export interface DashboardLoadResult {
   etag: string;
 }
 
-/**
- * 加载 Dashboard 数据
- *
- * @param options.refreshMode
- *  - "always"  ：每次请求都触发一次新的检测
- *  - "missing"：仅在历史为空时触发检测（避免首屏空白）
- *  - "never"  ：只读取历史，不触发新的检测
- */
+export function getDashboardCacheMetrics(): DashboardCacheMetrics {
+  return {...dashboardCacheMetrics};
+}
+
+export function resetDashboardCacheMetrics(): void {
+  dashboardCacheMetrics.hits = 0;
+  dashboardCacheMetrics.misses = 0;
+  dashboardCacheMetrics.inflightHits = 0;
+}
+
 export async function loadDashboardData(options?: {
   refreshMode?: RefreshMode;
   trendPeriod?: AvailabilityPeriod;
@@ -108,115 +97,96 @@ async function loadDashboardDataInternal(options?: {
   refreshMode?: RefreshMode;
   trendPeriod?: AvailabilityPeriod;
 }): Promise<DashboardLoadResult> {
-  ensureOfficialStatusPoller();
-  const allConfigs = await loadProviderConfigsFromDB();
-  const activeConfigs = allConfigs.filter((cfg) => !cfg.is_maintenance);
-
-  const allowedIds = new Set(activeConfigs.map((item) => item.id));
-  const pollIntervalMs = getPollingIntervalMs();
-  const pollIntervalLabel = getPollingIntervalLabel();
-  const providerKey =
-    allowedIds.size > 0 ? [...allowedIds].sort().join("|") : "__empty__";
+  const context = await createMonitorScopeContext({type: "all"});
   const refreshMode = options?.refreshMode ?? "missing";
   const trendPeriod = options?.trendPeriod ?? "7d";
-  const cacheKey = `dashboard:${pollIntervalMs}:${providerKey}`;
-  const cacheKeyWithPeriod = getDashboardCacheKey(
-    pollIntervalMs,
-    providerKey,
+  const cacheKey = getDashboardCacheKey(
+    context.pollIntervalMs,
+    context.providerKey,
     trendPeriod
   );
-  const cacheTtlMs = getDashboardCacheTtlMs(pollIntervalMs);
+  const cacheTtlMs = getMonitorCacheTtlMs(context.pollIntervalMs);
   const now = Date.now();
   const shouldBypassCache = refreshMode === "always";
 
   const loadData = async (): Promise<DashboardLoadResult> => {
-    const history = await loadSnapshotForScope(
-      {
-        cacheKey,
-        pollIntervalMs,
-        activeConfigs,
-        allowedIds,
-      },
-      refreshMode
-    );
-
-    const providerTimelines = buildProviderTimelines(history, allConfigs);
-
-    let lastUpdated: string | null = null;
-    let lastUpdatedMs = 0;
-    for (const timeline of providerTimelines) {
-      const checkedAtMs = Date.parse(timeline.latest.checkedAt);
-      if (Number.isFinite(checkedAtMs) && checkedAtMs > lastUpdatedMs) {
-        lastUpdatedMs = checkedAtMs;
-        lastUpdated = timeline.latest.checkedAt;
-      }
-    }
-
-    const generatedAt = Date.now();
-    const groupInfos = await loadGroupInfos();
-    const groupInfoSummaries: GroupInfoSummary[] = groupInfos.map((info) => ({
-      groupName: info.group_name,
-      websiteUrl: info.website_url ?? null,
-      tags: info.tags ?? "",
-    }));
-    const configIds = allConfigs.map((config) => config.id);
-    const availabilityStats = await getAvailabilityStats(configIds);
+    const [
+      {providerTimelines, lastUpdated, availabilityStats, generatedAt},
+      groupInfoSummaries,
+    ] = await Promise.all([
+      loadScopedMonitorData(context, refreshMode),
+      loadDashboardGroupInfoSummaries(),
+    ]);
 
     const data: DashboardData = {
       providerTimelines,
-      groupInfos: groupInfoSummaries,
+      groupInfos: groupInfoSummaries as GroupInfoSummary[],
       lastUpdated,
       total: providerTimelines.length,
-      pollIntervalLabel,
-      pollIntervalMs,
+      pollIntervalLabel: context.pollIntervalLabel,
+      pollIntervalMs: context.pollIntervalMs,
       availabilityStats,
       trendPeriod,
       generatedAt,
     };
 
     const etag = buildDashboardEtag(data);
-    dashboardCache.set(cacheKeyWithPeriod, {
-      data,
-      etag,
-      expiresAt: Date.now() + cacheTtlMs,
-    });
-
-    return { data, etag };
+    dashboardCache.set(cacheKey, {data, etag}, cacheTtlMs);
+    return {data, etag};
   };
 
   if (!shouldBypassCache) {
-    const cached = dashboardCache.get(cacheKeyWithPeriod);
-    if (cached?.data && now < cached.expiresAt) {
+    const cachedState = dashboardCache.getState(cacheKey, now);
+    const cached = cachedState.value;
+
+    if (cached?.data && !cachedState.expired) {
       dashboardCacheMetrics.hits += 1;
       cached.data.generatedAt = now;
       if (!cached.etag) {
         cached.etag = buildDashboardEtag(cached.data);
       }
-      return { data: cached.data, etag: cached.etag };
+      return {data: cached.data, etag: cached.etag};
     }
+
     if (cached?.inflight) {
       dashboardCacheMetrics.inflightHits += 1;
       const result = await cached.inflight;
-      const entry = dashboardCache.get(cacheKeyWithPeriod);
+      const entry = dashboardCache.getState(cacheKey).value;
       if (entry && !entry.etag) {
         entry.etag = result.etag;
+        dashboardCache.set(cacheKey, entry, cacheTtlMs);
       }
       return result;
     }
 
     dashboardCacheMetrics.misses += 1;
     const inflight = loadData().finally(() => {
-      const entry = dashboardCache.get(cacheKeyWithPeriod);
+      const entry = dashboardCache.getState(cacheKey).value;
       if (entry?.inflight === inflight) {
-        delete entry.inflight;
+        if (entry.data || entry.etag) {
+          dashboardCache.set(
+            cacheKey,
+            {
+              data: entry.data,
+              etag: entry.etag,
+            },
+            cacheTtlMs
+          );
+          return;
+        }
+        dashboardCache.delete(cacheKey);
       }
     });
-    dashboardCache.set(cacheKeyWithPeriod, {
-      data: cached?.data,
-      etag: cached?.etag,
-      expiresAt: cached?.expiresAt ?? 0,
-      inflight,
-    });
+
+    dashboardCache.set(
+      cacheKey,
+      {
+        data: cached?.data,
+        etag: cached?.etag,
+        inflight,
+      },
+      cacheTtlMs
+    );
     return inflight;
   }
 
